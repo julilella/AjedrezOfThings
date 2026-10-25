@@ -29,6 +29,8 @@
 #include "player.h"
 #include "screens.h"
 #include "ai.h"
+#include "audio.h"
+#include "sfx.h"
 
 static const char *TAG = "main";
 
@@ -99,6 +101,7 @@ static void on_match_button(button_id_t key)
                 s_picked = true;
                 s_pick_x = s_cursor_x;
                 s_pick_y = s_cursor_y;
+                sfx_play(SFX_SELECT);
             }
         }
     } else if (key == BTN_KEY1) {
@@ -108,6 +111,9 @@ static void on_match_button(button_id_t key)
         }
         s_picked = false;
     } else if (key == BTN_KEY2) {
+        if (s_picked) {
+            sfx_play(SFX_SELECT);
+        }
         s_picked = false;
     }
 }
@@ -117,10 +123,12 @@ static void on_button(button_id_t key)
     if (match_is_active()) {
         if (match_get()->is_game_over) {
             if (key == BTN_KEY4 || key == BTN_KEY1) {
+                sfx_play(SFX_SELECT);
                 match_quit();
                 s_app_state = APP_STATE_LOBBY;
             }
         } else if (key == BTN_KEY4) {
+            sfx_play(SFX_SELECT);
             match_quit();
             s_app_state = APP_STATE_LOBBY;
         } else {
@@ -143,12 +151,15 @@ static void on_button(button_id_t key)
             s_app_state = APP_STATE_LOBBY;
         } else if (key == BTN_KEY2) {
             /* DIFICULTAD */
+            sfx_play(SFX_SELECT);
             s_selected_diff = (s_selected_diff + 1) % AI_DIFFICULTY_COUNT;
         } else if (key == BTN_KEY3) {
             /* COLOR */
+            sfx_play(SFX_SELECT);
             s_selected_color = (s_selected_color + 1) % 3;
         } else if (key == BTN_KEY4) {
             /* ATRAS */
+            sfx_play(SFX_SELECT);
             s_app_state = APP_STATE_LOBBY;
         }
         return;
@@ -160,6 +171,7 @@ static void on_button(button_id_t key)
         const int n = link_nearby(nearby, MAX_LISTED);
 
         if (key == BTN_KEY3) {
+            sfx_play(SFX_SELECT);
             s_app_state = APP_STATE_CPU_MENU;
             break;
         }
@@ -176,8 +188,10 @@ static void on_button(button_id_t key)
             s_selected = 0;  /* a board left the list */
         }
         if (key == BTN_KEY2) {
+            sfx_play(SFX_SELECT);
             s_selected = (s_selected + 1) % n;
         } else if (key == BTN_KEY1 && !nearby[s_selected].busy) {
+            sfx_play(SFX_SELECT);
             reset_match_cursor();
             link_invite(&nearby[s_selected]);  /* busy boards wouldn't answer */
         }
@@ -185,14 +199,17 @@ static void on_button(button_id_t key)
     }
     case LINK_INVITING:
         if (key == BTN_KEY1 || key == BTN_KEY2) {
+            sfx_play(SFX_SELECT);
             link_hangup();
         }
         break;
     case LINK_INVITED:
         if (key == BTN_KEY1) {
+            sfx_play(SFX_SELECT);
             reset_match_cursor();
             match_accept();  /* we play black */
         } else if (key == BTN_KEY2) {
+            sfx_play(SFX_SELECT);
             link_hangup();
         }
         break;
@@ -283,6 +300,13 @@ void app_main(void)
 
     ESP_ERROR_CHECK(display_init());
     ESP_ERROR_CHECK(buttons_init());
+
+    esp_err_t audio_err = audio_init();
+    if (audio_err == ESP_OK) {
+        sfx_init();
+    } else {
+        ESP_LOGW(TAG, "audio_init failed: %s", esp_err_to_name(audio_err));
+    }
 
     bool has_name = player_profile_load(player_tag, sizeof(player_tag));
     if (!has_name) {

@@ -6,6 +6,7 @@
 #include "match.h"
 #include "history.h"
 #include "ai.h"
+#include "sfx.h"
 
 static const char *TAG __attribute__((unused)) = "match";
 
@@ -28,6 +29,8 @@ static char s_my_name[LINK_NAME_LEN + 1];
 static uint32_t s_sent_ms;      /* when we last sent our STATE */
 static bool s_history_recorded = false;
 static uint32_t s_cpu_think_start_ms = 0;
+
+static void record_played_match_if_needed(void);
 
 void match_init(const char *my_name)
 {
@@ -83,6 +86,7 @@ static void start(player_color_t color, const link_peer_t *rival)
         s_match.started = true;
         send_state();
     }
+    sfx_play(SFX_START);
 }
 
 esp_err_t match_start_cpu(player_color_t user_color, ai_difficulty_t difficulty)
@@ -114,6 +118,7 @@ esp_err_t match_start_cpu(player_color_t user_color, ai_difficulty_t difficulty)
     s_match.cpu_thinking = false;
 
     chessboard_init(s_match.board.sq);
+    sfx_play(SFX_START);
     return ESP_OK;
 }
 
@@ -145,6 +150,7 @@ esp_err_t match_start_pass_and_play(void)
     s_match.cpu_thinking = false;
 
     chessboard_init(s_match.board.sq);
+    sfx_play(SFX_START);
     return ESP_OK;
 }
 
@@ -166,7 +172,18 @@ static void on_state(const msg_state_t *msg)
     }
 
     if (msg->turn_count > s_match.turn_count || !s_match.started) {
-        board_from_bytes(&s_match.board, msg->board);
+        if (s_match.started && msg->turn_count > s_match.turn_count) {
+            int old_count = board_count_pieces(s_match.board.sq, true) + board_count_pieces(s_match.board.sq, false);
+            board_from_bytes(&s_match.board, msg->board);
+            int new_count = board_count_pieces(s_match.board.sq, true) + board_count_pieces(s_match.board.sq, false);
+            if (new_count < old_count) {
+                sfx_play(SFX_CAPTURE);
+            } else {
+                sfx_play(SFX_MOVE);
+            }
+        } else {
+            board_from_bytes(&s_match.board, msg->board);
+        }
         s_match.turn_count = msg->turn_count;
         s_match.started = true;
     }
@@ -177,6 +194,7 @@ static void on_state(const msg_state_t *msg)
         strncpy(s_match.winner_name, msg->winner_name, sizeof(s_match.winner_name) - 1);
         s_match.winner_name[sizeof(s_match.winner_name) - 1] = '\0';
         s_match.game_over_since_ms = now_ms();
+        record_played_match_if_needed();
     }
 }
 
@@ -197,10 +215,12 @@ static void record_played_match_if_needed(void)
         if (s_match.mode == MATCH_MODE_PASS_AND_PLAY) {
             bool white_won = (strcmp(s_match.winner_name, "BLANCAS") == 0);
             history_record(s_match.rival.mac, white_won);
+            sfx_play(SFX_WIN);
         } else {
             bool i_won = (s_match.winner_name[0] != '\0' &&
                           strcmp(s_match.winner_name, s_match.my_name) == 0);
             history_record(s_match.rival.mac, i_won);
+            sfx_play(i_won ? SFX_WIN : SFX_LOSE);
         }
     }
 }
@@ -318,6 +338,7 @@ void match_tick(void)
     }
 
     if (s_match.is_game_over) {
+        record_played_match_if_needed();
         if (s_match.game_over_since_ms > 0 && (now_ms() - s_match.game_over_since_ms >= GAME_OVER_AUTO_EXIT_MS)) {
             match_quit();
             return;
@@ -342,8 +363,15 @@ void match_tick(void)
 
                 if (ai_find_best_move(&s_match.board, cpu_is_white, s_match.ai_diff, &x0, &y0, &x1, &y1)) {
                     player_t cpu_player = {.is_white = cpu_is_white};
+                    bool is_capture = (s_match.board.sq[y1][x1].piece != PIECE_EMPTY);
                     board_move_and_capture(x0, y0, x1, y1, s_match.board.sq, cpu_player);
                     s_match.turn_count++;
+
+                    if (is_capture) {
+                        sfx_play(SFX_CAPTURE);
+                    } else {
+                        sfx_play(SFX_MOVE);
+                    }
 
                     bool human_is_white = (s_match.my_color == COLOR_WHITE);
                     if (board_count_pieces(s_match.board.sq, human_is_white) == 0) {
@@ -352,6 +380,7 @@ void match_tick(void)
                         s_match.game_over_since_ms = now_ms();
                         strncpy(s_match.winner_name, s_match.rival.name, sizeof(s_match.winner_name) - 1);
                         s_match.winner_name[sizeof(s_match.winner_name) - 1] = '\0';
+                        record_played_match_if_needed();
                     }
                 } else {
                     // CPU has no legal moves left
@@ -360,6 +389,7 @@ void match_tick(void)
                     s_match.game_over_since_ms = now_ms();
                     strncpy(s_match.winner_name, s_match.my_name, sizeof(s_match.winner_name) - 1);
                     s_match.winner_name[sizeof(s_match.winner_name) - 1] = '\0';
+                    record_played_match_if_needed();
                 }
             }
         } else {
@@ -399,11 +429,19 @@ bool match_move(int x0, int y0, int x1, int y1)
     }
 
     const player_t current_player = {.is_white = mover_is_white};
+    bool is_capture = (s_match.board.sq[y1][x1].piece != PIECE_EMPTY);
 
     if (!board_move_and_capture(x0, y0, x1, y1, s_match.board.sq, current_player)) {
+        sfx_play(SFX_INVALID);
         return false;
     }
     s_match.turn_count++;
+
+    if (is_capture) {
+        sfx_play(SFX_CAPTURE);
+    } else {
+        sfx_play(SFX_MOVE);
+    }
 
     /* Check if rival has no pieces left */
     const bool opponent_is_white = !mover_is_white;
@@ -417,6 +455,7 @@ bool match_move(int x0, int y0, int x1, int y1)
             strncpy(s_match.winner_name, s_match.my_name, sizeof(s_match.winner_name) - 1);
         }
         s_match.winner_name[sizeof(s_match.winner_name) - 1] = '\0';
+        record_played_match_if_needed();
     }
 
     if (s_match.mode == MATCH_MODE_ONLINE) {
