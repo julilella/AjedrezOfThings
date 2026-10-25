@@ -226,6 +226,10 @@ void screen_match(const match_t *match, int cursor_x, int cursor_y, int picked_x
         invalid_move_alert_time = ALERT_TIME_MS;
     }
 
+    const bool mover_is_white = (match->mode == MATCH_MODE_PASS_AND_PLAY) ?
+                                (match->turn_count % 2 == 0) : (match->my_color == COLOR_WHITE);
+    const player_t current_mover = {.is_white = mover_is_white};
+
     // Board: squares of 11 px every 12 px, from (0, 2). The cursor
     // square is drawn without a border.
     int y_pos = 2;
@@ -234,6 +238,7 @@ void screen_match(const match_t *match, int cursor_x, int cursor_y, int picked_x
         for (int x = 0; x < 5; x++) {
             const piece_t square = match->board.sq[y][x];
             const bool is_cursor = x == cursor_x && y == cursor_y;
+            const bool is_legal_dest = picked && board_is_legal_move(picked_x, picked_y, x, y, match->board.sq, current_mover);
             char txt[2] = {piece_to_char(square.piece), '\0'};
 
             if (square.piece == PIECE_EMPTY || square.is_white) {
@@ -261,6 +266,34 @@ void screen_match(const match_t *match, int cursor_x, int cursor_y, int picked_x
                 }
                 display_text_piece(x_pos + 3, y_pos + 2, txt, true);
             }
+
+            /* Highlight legal destination squares when a piece is picked */
+            if (is_legal_dest) {
+                if (square.piece == PIECE_EMPTY) {
+                    // Center dot on empty square
+                    display_fill_rect(x_pos + 4, y_pos + 4, 3, 3, true);
+                } else {
+                    // Corner targeting brackets for capturable pieces
+                    const bool col = square.is_white ? true : false;
+                    // Top-left
+                    display_set_pixel(x_pos + 2, y_pos + 2, col);
+                    display_set_pixel(x_pos + 3, y_pos + 2, col);
+                    display_set_pixel(x_pos + 2, y_pos + 3, col);
+                    // Top-right
+                    display_set_pixel(x_pos + 8, y_pos + 2, col);
+                    display_set_pixel(x_pos + 7, y_pos + 2, col);
+                    display_set_pixel(x_pos + 8, y_pos + 3, col);
+                    // Bottom-left
+                    display_set_pixel(x_pos + 2, y_pos + 8, col);
+                    display_set_pixel(x_pos + 3, y_pos + 8, col);
+                    display_set_pixel(x_pos + 2, y_pos + 7, col);
+                    // Bottom-right
+                    display_set_pixel(x_pos + 8, y_pos + 8, col);
+                    display_set_pixel(x_pos + 7, y_pos + 8, col);
+                    display_set_pixel(x_pos + 8, y_pos + 7, col);
+                }
+            }
+
             x_pos += 12;
         }
         y_pos += 12;

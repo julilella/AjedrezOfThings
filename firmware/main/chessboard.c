@@ -22,7 +22,7 @@ char piece_to_char(piece_type_t p)
     return s_piece_char[p];
 }
 
-static bool is_path_clear(int x_init, int y_init, int x_end, int y_end, piece_t board[5][5])
+static bool is_path_clear(int x_init, int y_init, int x_end, int y_end, const piece_t board[5][5])
 {
     int dx = (x_end > x_init) - (x_end < x_init);   // -1, 0, or 1
     int dy = (y_end > y_init) - (y_end < y_init);
@@ -76,9 +76,13 @@ void chessboard_init(piece_t board[5][5])
     }
 }
 
-bool board_move_and_capture(int x_init, int y_init, int x_end, int y_end,
-                            piece_t board[5][5], player_t player)
+bool board_is_legal_move(int x_init, int y_init, int x_end, int y_end,
+                         const piece_t board[5][5], player_t player)
 {
+    if (x_init < 0 || x_init >= 5 || y_init < 0 || y_init >= 5 ||
+        x_end < 0 || x_end >= 5 || y_end < 0 || y_end >= 5) {
+        return false;
+    }
     if (x_init == x_end && y_init == y_end) {
         return false;
     }
@@ -136,9 +140,17 @@ bool board_move_and_capture(int x_init, int y_init, int x_end, int y_end,
         break;
     }
 
-    if (!valid) {
+    return valid;
+}
+
+bool board_move_and_capture(int x_init, int y_init, int x_end, int y_end,
+                            piece_t board[5][5], player_t player)
+{
+    if (!board_is_legal_move(x_init, y_init, x_end, y_end, board, player)) {
         return false;
     }
+
+    piece_t piece_to_move = board[y_init][x_init];
 
     // Execute move
     board[y_end][x_end] = piece_to_move;

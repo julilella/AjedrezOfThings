@@ -43,6 +43,11 @@ char piece_to_char(piece_type_t p);
 /* Random start: 5 white pieces on rows 0-1, mirrored as black on rows 3-4. */
 void chessboard_init(piece_t board[5][5]);
 
+/* Checks if moving (x_init, y_init) -> (x_end, y_end) is legal for player,
+ * without modifying the board. Returns true if legal, false otherwise. */
+bool board_is_legal_move(int x_init, int y_init, int x_end, int y_end,
+                         const piece_t board[5][5], player_t player);
+
 /* If moving (x_init, y_init) -> (x_end, y_end) is legal for player, makes the
  * move (capture and promotion included) and returns true. If not, leaves the
  * board as it was and returns false. */
