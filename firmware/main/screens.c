@@ -299,6 +299,9 @@ void screen_match(const match_t *match, int cursor_x, int cursor_y, int picked_x
         y_pos += 12;
     }
 
+    bool is_panic = false;
+    const bool panic_blink = ((xTaskGetTickCount() * portTICK_PERIOD_MS / 200) % 2 == 0);
+
     // Right of the board: who we play, our color, whose turn, timer, and keys.
     if (match->mode == MATCH_MODE_PASS_AND_PLAY) {
         bool white_turn = (match->turn_count % 2 == 0);
@@ -307,8 +310,14 @@ void screen_match(const match_t *match, int cursor_x, int cursor_y, int picked_x
         int cur_time = white_turn ? match->my_time_s : match->rival_time_s;
         int m = cur_time / 60;
         int s = cur_time % 60;
-        snprintf(line, sizeof(line), "%02d:%02d", m, s);
-        display_text(62, 26, line, false);
+        is_panic = (cur_time <= 10 && cur_time > 0);
+        if (is_panic) {
+            snprintf(line, sizeof(line), "! %02d:%02d !", m, s);
+            display_text(62, 26, line, panic_blink);
+        } else {
+            snprintf(line, sizeof(line), "%02d:%02d", m, s);
+            display_text(62, 26, line, false);
+        }
     } else {
         snprintf(line, sizeof(line), "vs %s", match->rival.name);
         display_text(62, 6, line, false);
@@ -320,14 +329,23 @@ void screen_match(const match_t *match, int cursor_x, int cursor_y, int picked_x
         } else {
             int m = match->my_time_s / 60;
             int s = match->my_time_s % 60;
-            snprintf(line, sizeof(line), "%s %02d:%02d", match_my_turn() ? "TU" : "RIV", m, s);
-            display_text(62, 26, line, match_my_turn());
+            is_panic = (match_my_turn() && match->my_time_s <= 10 && match->my_time_s > 0);
+            if (is_panic) {
+                snprintf(line, sizeof(line), "!TU %02d:%02d!", m, s);
+                display_text(62, 26, line, panic_blink);
+            } else {
+                snprintf(line, sizeof(line), "%s %02d:%02d", match_my_turn() ? "TU" : "RIV", m, s);
+                display_text(62, 26, line, match_my_turn());
+            }
         }
     }
     if (invalid_move_alert_time > 0) {
         display_text(62, 36, "Movimiento", false);
         display_text(62, 46, "Invalido", false);
         invalid_move_alert_time -= UI_PERIOD_MS;
+    } else if (is_panic) {
+        display_text(62, 36, "! APURO !", panic_blink);
+        display_text(62, 46, picked ? "B1 mover" : "B1 elegir", false);
     } else {
         invalid_move_alert_time = 0;
         display_text(62, 36, picked ? "B1 mover" : "B1 elegir", false);

@@ -290,6 +290,9 @@ static void match_update_timer(void)
         if (white_turn) {
             if (s_match.my_time_s > (int32_t)elapsed_s) {
                 s_match.my_time_s -= elapsed_s;
+                if (s_match.my_time_s <= 10 && s_match.my_time_s > 0) {
+                    sfx_play(s_match.my_time_s <= 3 ? SFX_PANIC_ALERT : SFX_PANIC_TICK);
+                }
             } else {
                 s_match.my_time_s = 0;
                 s_match.is_game_over = true;
@@ -297,10 +300,14 @@ static void match_update_timer(void)
                 s_match.game_over_since_ms = now_ms();
                 strncpy(s_match.winner_name, "NEGRAS", sizeof(s_match.winner_name) - 1);
                 s_match.winner_name[sizeof(s_match.winner_name) - 1] = '\0';
+                record_played_match_if_needed();
             }
         } else {
             if (s_match.rival_time_s > (int32_t)elapsed_s) {
                 s_match.rival_time_s -= elapsed_s;
+                if (s_match.rival_time_s <= 10 && s_match.rival_time_s > 0) {
+                    sfx_play(s_match.rival_time_s <= 3 ? SFX_PANIC_ALERT : SFX_PANIC_TICK);
+                }
             } else {
                 s_match.rival_time_s = 0;
                 s_match.is_game_over = true;
@@ -308,6 +315,7 @@ static void match_update_timer(void)
                 s_match.game_over_since_ms = now_ms();
                 strncpy(s_match.winner_name, "BLANCAS", sizeof(s_match.winner_name) - 1);
                 s_match.winner_name[sizeof(s_match.winner_name) - 1] = '\0';
+                record_played_match_if_needed();
             }
         }
     } else {
@@ -317,6 +325,9 @@ static void match_update_timer(void)
 
         if (s_match.my_time_s > (int32_t)elapsed_s) {
             s_match.my_time_s -= elapsed_s;
+            if (s_match.my_time_s <= 10 && s_match.my_time_s > 0) {
+                sfx_play(s_match.my_time_s <= 3 ? SFX_PANIC_ALERT : SFX_PANIC_TICK);
+            }
         } else {
             s_match.my_time_s = 0;
             s_match.is_game_over = true;
@@ -324,6 +335,7 @@ static void match_update_timer(void)
             s_match.game_over_since_ms = now_ms();
             strncpy(s_match.winner_name, s_match.rival.name, sizeof(s_match.winner_name) - 1);
             s_match.winner_name[sizeof(s_match.winner_name) - 1] = '\0';
+            record_played_match_if_needed();
             if (s_match.mode == MATCH_MODE_ONLINE) {
                 send_state();
             }

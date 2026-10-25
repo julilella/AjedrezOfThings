@@ -66,7 +66,13 @@ static void sfx_task(void *arg)
                 break;
 
             case SFX_PANIC_TICK:
-                play_tone_safe(1000, 25);
+                play_tone_safe(800, 25);
+                break;
+
+            case SFX_PANIC_ALERT:
+                play_tone_safe(1100, 30);
+                play_rest(15);
+                play_tone_safe(1300, 40);
                 break;
 
             default:

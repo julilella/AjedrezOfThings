@@ -10,6 +10,7 @@ typedef enum {
     SFX_WIN,
     SFX_LOSE,
     SFX_PANIC_TICK,
+    SFX_PANIC_ALERT,
 } sfx_type_t;
 
 void sfx_init(void);
