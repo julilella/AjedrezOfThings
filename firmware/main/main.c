@@ -1,16 +1,21 @@
 /*
- * AjedrezOfThings firmware: start-up and the main loop.
+ * AjedrezOfThings & Kiwi Arcade firmware: start-up and main loop.
  *
- * The network side is done: components/link finds nearby boards and handles
- * invite / accept / hang up (see link.h).
  * Supports:
- *   - Online multiplayer via ESP-NOW
- *   - Solo play vs native CPU / AI (Easy / Medium / Hard)
- *   - Local 2-player Pass & Play
+ *   - Multi-game Launcher (Kiwi Arcade)
+ *   - Ajedrez 5x5:
+ *       - Online multiplayer via ESP-NOW
+ *       - Solo play vs native CPU / AI (Easy / Medium / Hard)
+ *       - Local 2-player Pass & Play
+ *   - Buscaminas (Minesweeper 9x7 con celdas de 8x8)
+ *   - Flappy Kiwi
+ *   - Kiwi Runner (Dino runner)
+ *   - Snake (La Viborita)
+ *   - Arkanoid (Breakout)
  *
- * Joystick note: buttons.c names its directions as in the organizers' board.h,
- * which are shifted 90 degrees. Pushing up arrives as BTN_RIGHT, right as
- * BTN_DOWN, down as BTN_LEFT, left as BTN_UP. The keys (BTN_KEY1..4) are fine.
+ * Joystick note: buttons.c names directions rotated from board.h.
+ * Physical UP is detected as BTN_DOWN, DOWN as BTN_UP,
+ * LEFT as BTN_RIGHT, RIGHT as BTN_LEFT.
  */
 
 #include <stdio.h>
@@ -32,25 +37,44 @@
 #include "audio.h"
 #include "sfx.h"
 
+#include "launcher.h"
+#include "buscaminas.h"
+#include "flappy_kiwi.h"
+#include "kiwi_runner.h"
+#include "snake.h"
+#include "arkanoid.h"
+
 static const char *TAG = "main";
 
-#define UI_PERIOD_MS 100    /* redraw at least this often */
-#define MAX_LISTED   16     /* boards in the lobby list (the screen scrolls) */
+#define UI_PERIOD_MS 25     /* ~40 FPS for smooth arcade physics */
+#define MAX_LISTED   16     /* boards in the lobby list */
+
+typedef enum {
+    APP_MODE_LAUNCHER = 0,
+    APP_MODE_CHESS,
+    APP_MODE_MINESWEEPER,
+    APP_MODE_FLAPPY,
+    APP_MODE_RUNNER,
+    APP_MODE_SNAKE,
+    APP_MODE_ARKANOID,
+} app_mode_t;
 
 typedef enum {
     APP_STATE_LOBBY = 0,
     APP_STATE_CPU_MENU,
-} app_screen_state_t;
+} chess_screen_state_t;
 
-static app_screen_state_t s_app_state = APP_STATE_LOBBY;
+static app_mode_t s_app_mode = APP_MODE_LAUNCHER;
+static chess_screen_state_t s_chess_state = APP_STATE_LOBBY;
+
 static ai_difficulty_t s_selected_diff = AI_MEDIUM;
 static int s_selected_color = 0; /* 0: Blancas, 1: Negras, 2: Azar */
 
 static char s_name[LINK_NAME_LEN + 1];
 char player_tag[PLAYER_NAME_LEN];
-static int s_selected;      /* lobby: index of the highlighted board in link_nearby() */
+static int s_selected;      /* lobby: index of the highlighted board */
 
-/* Match screen: the square the joystick points at, and the piece picked up. */
+/* Match screen cursor */
 static int s_cursor_x;
 static int s_cursor_y;
 static bool s_picked;
@@ -66,7 +90,7 @@ static void reset_match_cursor(void)
     is_invalid_move = false;
 }
 
-/* Arcade-style initials from the MAC, so every board gets its own name. */
+/* Arcade-style initials from the MAC */
 static void name_from_mac(char out[LINK_NAME_LEN + 1])
 {
     uint8_t mac[6];
@@ -77,11 +101,8 @@ static void name_from_mac(char out[LINK_NAME_LEN + 1])
     out[LINK_NAME_LEN] = '\0';
 }
 
-/* Joystick moves the cursor. KEY1 picks up a piece (on our turn), then KEY1
- * again asks match to move it; KEY2 puts it back down. */
 static void on_match_button(button_id_t key)
 {
-    /* Joystick: same mapping as Franco and Fede's draw_ui(). */
     if (key == BTN_DOWN && s_cursor_y > 0) {
         s_cursor_y--;
     } else if (key == BTN_RIGHT && s_cursor_x > 0) {
@@ -105,7 +126,6 @@ static void on_match_button(button_id_t key)
             }
         }
     } else if (key == BTN_KEY1) {
-        /* Illegal moves do nothing (tell the player). */
         if (!match_move(s_pick_x, s_pick_y, s_cursor_x, s_cursor_y)) {
             is_invalid_move = true;
         }
@@ -120,24 +140,113 @@ static void on_match_button(button_id_t key)
 
 static void on_button(button_id_t key)
 {
+    // Mode 1: Launcher Menu
+    if (s_app_mode == APP_MODE_LAUNCHER) {
+        launcher_on_button(key);
+        launcher_game_t selected = launcher_get_selected_game();
+        if (selected != LAUNCHER_GAME_NONE) {
+            switch (selected) {
+            case LAUNCHER_GAME_CHESS:
+                s_app_mode = APP_MODE_CHESS;
+                s_chess_state = APP_STATE_LOBBY;
+                break;
+            case LAUNCHER_GAME_BUSCAMINAS:
+                s_app_mode = APP_MODE_MINESWEEPER;
+                buscaminas_init();
+                break;
+            case LAUNCHER_GAME_FLAPPY:
+                s_app_mode = APP_MODE_FLAPPY;
+                flappy_kiwi_init();
+                break;
+            case LAUNCHER_GAME_RUNNER:
+                s_app_mode = APP_MODE_RUNNER;
+                kiwi_runner_init();
+                break;
+            case LAUNCHER_GAME_SNAKE:
+                s_app_mode = APP_MODE_SNAKE;
+                snake_init();
+                break;
+            case LAUNCHER_GAME_ARKANOID:
+                s_app_mode = APP_MODE_ARKANOID;
+                arkanoid_init();
+                break;
+            default:
+                break;
+            }
+            launcher_reset_selection();
+        }
+        return;
+    }
+
+    // Mode 2: Buscaminas
+    if (s_app_mode == APP_MODE_MINESWEEPER) {
+        buscaminas_on_button(key);
+        if (buscaminas_should_exit()) {
+            s_app_mode = APP_MODE_LAUNCHER;
+            launcher_reset_selection();
+        }
+        return;
+    }
+
+    // Mode 3: Flappy Kiwi
+    if (s_app_mode == APP_MODE_FLAPPY) {
+        flappy_kiwi_on_button(key);
+        if (flappy_kiwi_should_exit()) {
+            s_app_mode = APP_MODE_LAUNCHER;
+            launcher_reset_selection();
+        }
+        return;
+    }
+
+    // Mode 4: Kiwi Runner
+    if (s_app_mode == APP_MODE_RUNNER) {
+        kiwi_runner_on_button(key);
+        if (kiwi_runner_should_exit()) {
+            s_app_mode = APP_MODE_LAUNCHER;
+            launcher_reset_selection();
+        }
+        return;
+    }
+
+    // Mode 5: Snake
+    if (s_app_mode == APP_MODE_SNAKE) {
+        snake_on_button(key);
+        if (snake_should_exit()) {
+            s_app_mode = APP_MODE_LAUNCHER;
+            launcher_reset_selection();
+        }
+        return;
+    }
+
+    // Mode 6: Arkanoid
+    if (s_app_mode == APP_MODE_ARKANOID) {
+        arkanoid_on_button(key);
+        if (arkanoid_should_exit()) {
+            s_app_mode = APP_MODE_LAUNCHER;
+            launcher_reset_selection();
+        }
+        return;
+    }
+
+    // Mode: Ajedrez 5x5
     if (match_is_active()) {
         if (match_get()->is_game_over) {
             if (key == BTN_KEY4 || key == BTN_KEY1) {
                 sfx_play(SFX_SELECT);
                 match_quit();
-                s_app_state = APP_STATE_LOBBY;
+                s_chess_state = APP_STATE_LOBBY;
             }
         } else if (key == BTN_KEY4) {
             sfx_play(SFX_SELECT);
             match_quit();
-            s_app_state = APP_STATE_LOBBY;
+            s_chess_state = APP_STATE_LOBBY;
         } else {
             on_match_button(key);
         }
         return;
     }
 
-    if (s_app_state == APP_STATE_CPU_MENU) {
+    if (s_chess_state == APP_STATE_CPU_MENU) {
         if (key == BTN_KEY1) {
             /* JUGAR */
             player_color_t color;
@@ -148,7 +257,7 @@ static void on_button(button_id_t key)
             }
             reset_match_cursor();
             match_start_cpu(color, s_selected_diff);
-            s_app_state = APP_STATE_LOBBY;
+            s_chess_state = APP_STATE_LOBBY;
         } else if (key == BTN_KEY2) {
             /* DIFICULTAD */
             sfx_play(SFX_SELECT);
@@ -160,45 +269,48 @@ static void on_button(button_id_t key)
         } else if (key == BTN_KEY4) {
             /* ATRAS */
             sfx_play(SFX_SELECT);
-            s_app_state = APP_STATE_LOBBY;
+            s_chess_state = APP_STATE_LOBBY;
         }
         return;
     }
 
+    // Chess Lobby
     switch (link_get_state(NULL)) {
     case LINK_IDLE: {
         link_peer_t nearby[MAX_LISTED];
         const int n = link_nearby(nearby, MAX_LISTED);
 
-        if (key == BTN_KEY3) {
-            sfx_play(SFX_SELECT);
-            s_app_state = APP_STATE_CPU_MENU;
-            break;
-        }
-        if (key == BTN_KEY4) {
-            reset_match_cursor();
-            match_start_pass_and_play();
-            break;
+        if (n > 1) {
+            if (key == BTN_DOWN) {
+                s_selected = (s_selected + n - 1) % n;
+                sfx_play(SFX_SELECT);
+                break;
+            } else if (key == BTN_UP) {
+                s_selected = (s_selected + 1) % n;
+                sfx_play(SFX_SELECT);
+                break;
+            }
         }
 
-        if (n == 0) {
-            break;
-        }
-        if (s_selected >= n) {
-            s_selected = 0;  /* a board left the list */
-        }
-        if (key == BTN_KEY2) {
-            sfx_play(SFX_SELECT);
-            s_selected = (s_selected + 1) % n;
-        } else if (key == BTN_KEY1 && !nearby[s_selected].busy) {
+        if (key == BTN_KEY1 && n > 0 && !nearby[s_selected].busy) {
             sfx_play(SFX_SELECT);
             reset_match_cursor();
-            link_invite(&nearby[s_selected]);  /* busy boards wouldn't answer */
+            link_invite(&nearby[s_selected]);
+        } else if (key == BTN_KEY2) {
+            sfx_play(SFX_SELECT);
+            s_chess_state = APP_STATE_CPU_MENU;
+        } else if (key == BTN_KEY3) {
+            reset_match_cursor();
+            match_start_pass_and_play();
+        } else if (key == BTN_KEY4) {
+            sfx_play(SFX_SELECT);
+            s_app_mode = APP_MODE_LAUNCHER;
+            launcher_reset_selection();
         }
         break;
     }
     case LINK_INVITING:
-        if (key == BTN_KEY1 || key == BTN_KEY2) {
+        if (key == BTN_KEY1 || key == BTN_KEY2 || key == BTN_KEY4) {
             sfx_play(SFX_SELECT);
             link_hangup();
         }
@@ -207,8 +319,8 @@ static void on_button(button_id_t key)
         if (key == BTN_KEY1) {
             sfx_play(SFX_SELECT);
             reset_match_cursor();
-            match_accept();  /* we play black */
-        } else if (key == BTN_KEY2) {
+            match_accept();
+        } else if (key == BTN_KEY2 || key == BTN_KEY4) {
             sfx_play(SFX_SELECT);
             link_hangup();
         }
@@ -220,7 +332,14 @@ static void on_button(button_id_t key)
 
 static void on_link_event(const event_t *ev)
 {
-    /* If playing local match, decline incoming invites to avoid interrupting */
+    /* Ignore incoming invites when playing other arcade games */
+    if (s_app_mode != APP_MODE_CHESS) {
+        if (ev->link == LINK_EVT_INVITED) {
+            link_hangup();
+        }
+        return;
+    }
+
     if (match_is_active() && match_get()->mode != MATCH_MODE_ONLINE) {
         if (ev->link == LINK_EVT_INVITED) {
             link_hangup();
@@ -246,18 +365,60 @@ static void on_link_event(const event_t *ev)
     }
 }
 
-/* Draw the screen for whatever state the app is in. */
+static void tick(void)
+{
+    if (s_app_mode == APP_MODE_CHESS) {
+        match_tick();
+    } else if (s_app_mode == APP_MODE_MINESWEEPER) {
+        buscaminas_tick();
+    } else if (s_app_mode == APP_MODE_FLAPPY) {
+        flappy_kiwi_tick();
+    } else if (s_app_mode == APP_MODE_RUNNER) {
+        kiwi_runner_tick();
+    } else if (s_app_mode == APP_MODE_SNAKE) {
+        snake_tick();
+    } else if (s_app_mode == APP_MODE_ARKANOID) {
+        arkanoid_tick();
+    }
+}
+
 static void draw(void)
 {
+    if (s_app_mode == APP_MODE_LAUNCHER) {
+        launcher_draw();
+        return;
+    }
+    if (s_app_mode == APP_MODE_MINESWEEPER) {
+        buscaminas_draw();
+        return;
+    }
+    if (s_app_mode == APP_MODE_FLAPPY) {
+        flappy_kiwi_draw();
+        return;
+    }
+    if (s_app_mode == APP_MODE_RUNNER) {
+        kiwi_runner_draw();
+        return;
+    }
+    if (s_app_mode == APP_MODE_SNAKE) {
+        snake_draw();
+        return;
+    }
+    if (s_app_mode == APP_MODE_ARKANOID) {
+        arkanoid_draw();
+        return;
+    }
+
+    // APP_MODE_CHESS
     if (match_is_active()) {
         screen_match(match_get(), s_cursor_x, s_cursor_y, s_pick_x, s_pick_y, s_picked, is_invalid_move);
         if (is_invalid_move) {
-            is_invalid_move = false;  // Reset the flag after displaying the alert
+            is_invalid_move = false;
         }
         return;
     }
 
-    if (s_app_state == APP_STATE_CPU_MENU) {
+    if (s_chess_state == APP_STATE_CPU_MENU) {
         screen_cpu_menu(s_selected_diff, s_selected_color);
         return;
     }
@@ -269,7 +430,7 @@ static void draw(void)
     case LINK_IDLE: {
         const int n = link_nearby(nearby, MAX_LISTED);
         if (s_selected >= n) {
-            s_selected = 0;  /* a board left the list */
+            s_selected = 0;
         }
         screen_lobby(s_name, nearby, n, s_selected);
         break;
@@ -319,6 +480,8 @@ void app_main(void)
     }
     snprintf(s_name, sizeof(s_name), "%s", player_tag);
 
+    launcher_init(player_tag);
+
     events_init();
     match_init(s_name);
     reset_match_cursor();
@@ -333,7 +496,7 @@ void app_main(void)
                 on_link_event(&ev);
             }
         }
-        match_tick();
+        tick();
         draw();
     }
 }

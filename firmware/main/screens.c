@@ -85,16 +85,16 @@ void screen_lobby(const char *me, const link_peer_t *nearby, int n, int selected
         display_text(120, 41, "v", false);  /* more below */
     }
 
+    const int btn_y = BOARD_LCD_HEIGHT - DISPLAY_FONT_H - 1;
     if (n > 0) {
-        const int btn_y = BOARD_LCD_HEIGHT - DISPLAY_FONT_H - 1;
-        display_text(0, btn_y, "retar", false);
-        display_text(40, btn_y, "sig", false);
-        display_text(76, btn_y, "CPU", false);
-        display_text(108, btn_y, "2P", false);
+        display_text(0, btn_y, "B1:Ret", false);
+        display_text(38, btn_y, "B2:CPU", false);
+        display_text(76, btn_y, "B3:2P", false);
+        display_text(106, btn_y, "B4:M", false);
     } else {
-        const int btn_y = BOARD_LCD_HEIGHT - DISPLAY_FONT_H - 1;
-        display_text(16, btn_y, "B3:CPU", false);
-        display_text(76, btn_y, "B4:2P", false);
+        display_text(6, btn_y, "B2:CPU", false);
+        display_text(50, btn_y, "B3:2P", false);
+        display_text(86, btn_y, "B4:Menu", false);
     }
     display_flush();
 }
